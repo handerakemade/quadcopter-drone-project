@@ -1,0 +1,688 @@
+
+
+
+ARM Macro Assembler    Page 1 
+
+
+    1 00000000         ;=======================================================
+                       ===
+    2 00000000         ;  led_buzzer.s  -- 汇编实现 LED + Buzzer 驱动
+    3 00000000         ;=======================================================
+                       ===
+    4 00000000                 PRESERVE8
+    5 00000000                 THUMB
+    6 00000000         
+    7 00000000         ;EQU伪指令相当于#define，全称Equate
+    8 00000000         ;-------------------------- 宏 ------------------------
+                       -----
+    9 00000000 40020000 
+                       LED_PORT
+                               EQU              0x40020000  ; GPIOA
+   10 00000000 00000020 
+                       LED_PIN EQU              (1<<5)      ; PA5
+   11 00000000 00000001 
+                       LED_CLK_EN
+                               EQU              (1<<0)      ; RCC_AHB1ENR bit0
+   12 00000000         
+   13 00000000 40020C00 
+                       Buzzer_PORT
+                               EQU              0x40020C00  ; GPIOD
+   14 00000000 00000004 
+                       Buzzer_PIN
+                               EQU              (1<<2)      ; PD2
+   15 00000000 00000008 
+                       Buzzer_CLK_EN
+                               EQU              (1<<3)      ; RCC_AHB1ENR bit3
+   16 00000000         
+   17 00000000 40023800 
+                       RCC_BASE
+                               EQU              0x40023800
+   18 00000000 40023830 
+                       RCC_AHB1ENR
+                               EQU              (RCC_BASE + 0x30)
+   19 00000000         
+   20 00000000         ; GPIO 寄存器 offsets
+   21 00000000 00000000 
+                       GPIO_MODER
+                               EQU              0x00
+   22 00000000 00000004 
+                       GPIO_OTYPER
+                               EQU              0x04
+   23 00000000 00000008 
+                       GPIO_OSPEEDR
+                               EQU              0x08
+   24 00000000 0000000C 
+                       GPIO_PUPDR
+                               EQU              0x0C
+   25 00000000 00000018 
+                       GPIO_BSRR
+                               EQU              0x18
+   26 00000000 00000014 
+                       GPIO_ODR
+                               EQU              0x14
+   27 00000000         
+   28 00000000         ;-------------------- 导出函数符号，外部可用 
+                       -------------------------
+
+
+
+ARM Macro Assembler    Page 2 
+
+
+   29 00000000                 EXPORT           LED_Init
+   30 00000000                 EXPORT           LED_On
+   31 00000000                 EXPORT           LED_Off
+   32 00000000                 EXPORT           LED_Toggle
+   33 00000000                 EXPORT           LED_Blink_1Hz
+   34 00000000                 EXPORT           Buzzer_Init
+   35 00000000                 EXPORT           Buzzer_On
+   36 00000000                 EXPORT           Buzzer_Off
+   37 00000000                 EXPORT           Buzzer_Toggle
+   38 00000000                 EXPORT           Buzzer_Blink_1Hz
+   39 00000000         
+   40 00000000         ;-------------------- 外部符号 ---------------------
+                       -------
+   41 00000000                 IMPORT           Delay_ms
+   42 00000000         
+   43 00000000         ;AREA告诉汇编器，从此开始定义一片新的内
+                       存区域，汇编代码都必须位于某个AREA中，�
+                       ��接器会自己安排AREA的位置
+   44 00000000         ;|.text| .text表示可执行代码，双竖线是ARM汇
+                       编语法要求
+   45 00000000         ;CODE告诉汇编器这一段是机器指令，不是数
+                       据变量
+   46 00000000         ;READONLY表示访问权限是只读，烧录在flash中
+                       ，如果是READWRITE会放在RAM中
+   47 00000000         ;-------------------- 代码段 ------------------------
+                       ------
+   48 00000000                 AREA             |.text|, CODE, READONLY
+   49 00000000         
+   50 00000000         ;-------------------------------------------------------
+                       --
+   51 00000000         LED_Init
+   52 00000000         ;  void LED_Init(void);
+   53 00000000         ;-------------------------------------------------------
+                       --
+   54 00000000 B500            PUSH             {LR}
+   55 00000002         
+   56 00000002         ; 1) 使能 GPIOA 时钟
+   57 00000002 4849            LDR              R0, =RCC_AHB1ENR
+   58 00000004 6801            LDR              R1, [R0]
+   59 00000006 F041 0101       ORR              R1, R1, #LED_CLK_EN
+   60 0000000A 6001            STR              R1, [R0]
+   61 0000000C         
+   62 0000000C         ; 2) 等待时钟就绪
+   63 0000000C         wait_led_clk
+   64 0000000C 6801            LDR              R1, [R0]
+   65 0000000E F011 0F01       TST              R1, #LED_CLK_EN
+   66 00000012 D0FB            BEQ              wait_led_clk
+   67 00000014         
+   68 00000014         ; 3) MODER: PA5 -> 输出 (01)
+   69 00000014 4845            LDR              R0, =LED_PORT
+   70 00000016 6801            LDR              R1, [R0, #GPIO_MODER]
+   71 00000018 F421 6140       BIC              R1, R1, #(3<<10) ; 清 bit11:10
+                                                            
+   72 0000001C F441 6180       ORR              R1, R1, #(1<<10) ; 置 01
+   73 00000020 6001            STR              R1, [R0, #GPIO_MODER]
+   74 00000022         
+   75 00000022         ; 4) OTYPER: 推挽
+   76 00000022 6841            LDR              R1, [R0, #GPIO_OTYPER]
+   77 00000024 F021 0120       BIC              R1, R1, #LED_PIN
+
+
+
+ARM Macro Assembler    Page 3 
+
+
+   78 00000028 6041            STR              R1, [R0, #GPIO_OTYPER]
+   79 0000002A         
+   80 0000002A         ; 5) OSPEEDR: 50 MHz  (10)
+   81 0000002A 6881            LDR              R1, [R0, #GPIO_OSPEEDR]
+   82 0000002C F421 6140       BIC              R1, R1, #(3<<10)
+   83 00000030 F441 6100       ORR              R1, R1, #(2<<10)
+   84 00000034 6081            STR              R1, [R0, #GPIO_OSPEEDR]
+   85 00000036         
+   86 00000036         ; 6) PUPDR: 无上下拉
+   87 00000036 68C1            LDR              R1, [R0, #GPIO_PUPDR]
+   88 00000038 F421 6140       BIC              R1, R1, #(3<<10)
+   89 0000003C 60C1            STR              R1, [R0, #GPIO_PUPDR]
+   90 0000003E         
+   91 0000003E         ; 7) 关灯
+   92 0000003E F7FF FFFE       BL               LED_Off
+   93 00000042         
+   94 00000042 BD00            POP              {PC}
+   95 00000044         
+   96 00000044         ;-------------------------------------------------------
+                       --
+   97 00000044         LED_On
+   98 00000044         ;  void LED_On(void);
+   99 00000044         ;-------------------------------------------------------
+                       --
+  100 00000044 4839            LDR              R0, =LED_PORT
+  101 00000046 F04F 0120       LDR              R1, =LED_PIN
+  102 0000004A 6181            STR              R1, [R0, #GPIO_BSRR] ; 置位
+  103 0000004C         ; 记录状态 = 1
+  104 0000004C 4838            LDR              R0, =led_state
+  105 0000004E 2101            MOVS             R1, #1
+  106 00000050 7001            STRB             R1, [R0]
+  107 00000052 4770            BX               LR
+  108 00000054         
+  109 00000054         ;-------------------------------------------------------
+                       --
+  110 00000054         LED_Off
+  111 00000054         ;  void LED_Off(void);
+  112 00000054         ;-------------------------------------------------------
+                       --
+  113 00000054 4835            LDR              R0, =LED_PORT
+  114 00000056 F04F 0120       LDR              R1, =LED_PIN
+  115 0000005A EA4F 4101       LSL              R1, R1, #16 ; 复位位
+  116 0000005E 6181            STR              R1, [R0, #GPIO_BSRR]
+  117 00000060         ; 记录状态 = 0
+  118 00000060 4833            LDR              R0, =led_state
+  119 00000062 2100            MOVS             R1, #0
+  120 00000064 7001            STRB             R1, [R0]
+  121 00000066 4770            BX               LR
+  122 00000068         
+  123 00000068         ;-------------------------------------------------------
+                       --
+  124 00000068         LED_Toggle
+  125 00000068         ;  void LED_Toggle(void);
+  126 00000068         ;-------------------------------------------------------
+                       --
+  127 00000068 4830            LDR              R0, =LED_PORT
+  128 0000006A 6941            LDR              R1, [R0, #GPIO_ODR]
+  129 0000006C F04F 0220       LDR              R2, =LED_PIN
+  130 00000070 EA81 0102       EOR              R1, R1, R2
+
+
+
+ARM Macro Assembler    Page 4 
+
+
+  131 00000074 6141            STR              R1, [R0, #GPIO_ODR]
+  132 00000076         ; 更新状态变量
+  133 00000076 482E            LDR              R0, =led_state
+  134 00000078 7801            LDRB             R1, [R0]
+  135 0000007A F081 0101       EOR              R1, R1, #1
+  136 0000007E 7001            STRB             R1, [R0]
+  137 00000080 4770            BX               LR
+  138 00000082         
+  139 00000082         ;-------------------------------------------------------
+                       --
+  140 00000082         LED_Blink_1Hz
+  141 00000082         ;  void LED_Blink_1Hz(void);
+  142 00000082         ;-------------------------------------------------------
+                       --
+  143 00000082 B500            PUSH             {LR}
+  144 00000084 F7FF FFFE       BL               LED_On
+  145 00000088 F45F 70FA       MOVS             R0, #500
+  146 0000008C F7FF FFFE       BL               Delay_ms
+  147 00000090 F7FF FFFE       BL               LED_Off
+  148 00000094 F45F 70FA       MOVS             R0, #500
+  149 00000098 F7FF FFFE       BL               Delay_ms
+  150 0000009C BD00            POP              {PC}
+  151 0000009E         
+  152 0000009E         ;=======================================================
+                       ==
+  153 0000009E         ;  蜂鸣器部分 —— 与 LED 完全对称
+  154 0000009E         ;=======================================================
+                       ==
+  155 0000009E         Buzzer_Init
+  156 0000009E B500            PUSH             {LR}
+  157 000000A0         ; 1) 使能 GPIOD 时钟
+  158 000000A0 4821            LDR              R0, =RCC_AHB1ENR
+  159 000000A2 6801            LDR              R1, [R0]
+  160 000000A4 F041 0108       ORR              R1, R1, #Buzzer_CLK_EN
+  161 000000A8 6001            STR              R1, [R0]
+  162 000000AA         wait_bz_clk
+  163 000000AA 6801            LDR              R1, [R0]
+  164 000000AC F011 0F08       TST              R1, #Buzzer_CLK_EN
+  165 000000B0 D0FB            BEQ              wait_bz_clk
+  166 000000B2         
+  167 000000B2         ; 2) PD2 配置
+  168 000000B2 4822            LDR              R0, =Buzzer_PORT
+  169 000000B4         ; MODER
+  170 000000B4 6801            LDR              R1, [R0, #GPIO_MODER]
+  171 000000B6 F021 0130       BIC              R1, R1, #(3<<4) ; PD2 -> bit5:4
+                                                            
+  172 000000BA F041 0110       ORR              R1, R1, #(1<<4)
+  173 000000BE 6001            STR              R1, [R0, #GPIO_MODER]
+  174 000000C0         ; OTYPER 推挽
+  175 000000C0 6841            LDR              R1, [R0, #GPIO_OTYPER]
+  176 000000C2 F021 0104       BIC              R1, R1, #Buzzer_PIN
+  177 000000C6 6041            STR              R1, [R0, #GPIO_OTYPER]
+  178 000000C8         ; 速度 50 MHz
+  179 000000C8 6881            LDR              R1, [R0, #GPIO_OSPEEDR]
+  180 000000CA F021 0130       BIC              R1, R1, #(3<<4)
+  181 000000CE F041 0120       ORR              R1, R1, #(2<<4)
+  182 000000D2 6081            STR              R1, [R0, #GPIO_OSPEEDR]
+  183 000000D4         ; 无上下拉
+  184 000000D4 68C1            LDR              R1, [R0, #GPIO_PUPDR]
+
+
+
+ARM Macro Assembler    Page 5 
+
+
+  185 000000D6 F021 0130       BIC              R1, R1, #(3<<4)
+  186 000000DA 60C1            STR              R1, [R0, #GPIO_PUPDR]
+  187 000000DC         
+  188 000000DC F7FF FFFE       BL               Buzzer_Off
+  189 000000E0 BD00            POP              {PC}
+  190 000000E2         
+  191 000000E2         ;-------------------------------------------------------
+                       --
+  192 000000E2         Buzzer_On
+  193 000000E2         ;  void Buzzer_On(void);
+  194 000000E2         ;-------------------------------------------------------
+                       --
+  195 000000E2 4816            LDR              R0, =Buzzer_PORT
+  196 000000E4 F04F 0104       LDR              R1, =Buzzer_PIN
+  197 000000E8 6181            STR              R1, [R0, #GPIO_BSRR]
+  198 000000EA 4770            BX               LR
+  199 000000EC         
+  200 000000EC         ;-------------------------------------------------------
+                       --
+  201 000000EC         Buzzer_Off
+  202 000000EC         ;  void Buzzer_Off(void);
+  203 000000EC         ;-------------------------------------------------------
+                       --
+  204 000000EC 4813            LDR              R0, =Buzzer_PORT
+  205 000000EE F04F 0104       LDR              R1, =Buzzer_PIN
+  206 000000F2 EA4F 4101       LSL              R1, R1, #16
+  207 000000F6 6181            STR              R1, [R0, #GPIO_BSRR]
+  208 000000F8 4770            BX               LR
+  209 000000FA         
+  210 000000FA         ;-------------------------------------------------------
+                       --
+  211 000000FA         Buzzer_Toggle
+  212 000000FA         ;  void Buzzer_Toggle(void);
+  213 000000FA         ;-------------------------------------------------------
+                       --
+  214 000000FA 4810            LDR              R0, =Buzzer_PORT
+  215 000000FC 6941            LDR              R1, [R0, #GPIO_ODR]
+  216 000000FE F04F 0204       LDR              R2, =Buzzer_PIN
+  217 00000102 EA81 0102       EOR              R1, R1, R2
+  218 00000106 6141            STR              R1, [R0, #GPIO_ODR]
+  219 00000108 4770            BX               LR
+  220 0000010A         
+  221 0000010A         ;-------------------------------------------------------
+                       --
+  222 0000010A         Buzzer_Blink_1Hz
+  223 0000010A         ;  void Buzzer_Blink_1Hz(void);
+  224 0000010A         ;-------------------------------------------------------
+                       --
+  225 0000010A B500            PUSH             {LR}
+  226 0000010C F7FF FFFE       BL               Buzzer_On
+  227 00000110 F45F 70FA       MOVS             R0, #500
+  228 00000114 F7FF FFFE       BL               Delay_ms
+  229 00000118 F7FF FFFE       BL               Buzzer_Off
+  230 0000011C F45F 70FA       MOVS             R0, #500
+  231 00000120 F7FF FFFE       BL               Delay_ms
+  232 00000124 BD00            POP              {PC}
+  233 00000126         
+  234 00000126         ;=======================================================
+                       ==
+
+
+
+ARM Macro Assembler    Page 6 
+
+
+  235 00000126         ; AREA表示区域
+  236 00000126         ;|.data|表示这里存放数据而不是代码
+  237 00000126         ;DATA同
+  238 00000126         ;READWRITE表示可读可写，通常存放在SRAM中
+  239 00000126         ;led_state其实表示的是这个数据的地址
+  240 00000126         ;DCB是Define Constant Byte，定义常量
+  241 00000126         ;=======================================================
+                       ==
+  242 00000126 00 00 40023830 
+              40020000 
+              00000000 
+              00000000 
+              00000000 
+              40020C00         AREA             |.data|, DATA, READWRITE
+  243 00000000 00      led_state
+                               DCB              0           ; 0=灭 1=亮
+  244 00000001         
+  245 00000001         ;-------------------------------------------------------
+                       --
+  246 00000001                 END
+Command Line: --debug --xref --diag_suppress=9931 --cpu=Cortex-M4.fp --apcs=int
+erwork --depend=.\objects\led_buzzer.d -o.\objects\led_buzzer.o -I.\RTE\_f401 -
+ID:\keil_v5\ARM\PACK\Keil\STM32F4xx_DFP\2.15.0\Drivers\CMSIS\Device\ST\STM32F4x
+x\Include -ID:\keil_v5\ARM\CMSIS\Include --predefine="__MICROLIB SETA 1" --pred
+efine="__UVISION_VERSION SETA 527" --predefine="STM32F401xE SETA 1" --list=.\li
+stings\led_buzzer.lst Hardware\led_buzzer.s
+
+
+
+ARM Macro Assembler    Page 1 Alphabetic symbol ordering
+Relocatable symbols
+
+.text 00000000
+
+Symbol: .text
+   Definitions
+      At line 48 in file Hardware\led_buzzer.s
+   Uses
+      None
+Comment: .text unused
+Buzzer_Blink_1Hz 0000010A
+
+Symbol: Buzzer_Blink_1Hz
+   Definitions
+      At line 222 in file Hardware\led_buzzer.s
+   Uses
+      At line 38 in file Hardware\led_buzzer.s
+Comment: Buzzer_Blink_1Hz used once
+Buzzer_Init 0000009E
+
+Symbol: Buzzer_Init
+   Definitions
+      At line 155 in file Hardware\led_buzzer.s
+   Uses
+      At line 34 in file Hardware\led_buzzer.s
+Comment: Buzzer_Init used once
+Buzzer_Off 000000EC
+
+Symbol: Buzzer_Off
+   Definitions
+      At line 201 in file Hardware\led_buzzer.s
+   Uses
+      At line 36 in file Hardware\led_buzzer.s
+      At line 188 in file Hardware\led_buzzer.s
+      At line 229 in file Hardware\led_buzzer.s
+
+Buzzer_On 000000E2
+
+Symbol: Buzzer_On
+   Definitions
+      At line 192 in file Hardware\led_buzzer.s
+   Uses
+      At line 35 in file Hardware\led_buzzer.s
+      At line 226 in file Hardware\led_buzzer.s
+
+Buzzer_Toggle 000000FA
+
+Symbol: Buzzer_Toggle
+   Definitions
+      At line 211 in file Hardware\led_buzzer.s
+   Uses
+      At line 37 in file Hardware\led_buzzer.s
+Comment: Buzzer_Toggle used once
+LED_Blink_1Hz 00000082
+
+Symbol: LED_Blink_1Hz
+   Definitions
+      At line 140 in file Hardware\led_buzzer.s
+   Uses
+      At line 33 in file Hardware\led_buzzer.s
+Comment: LED_Blink_1Hz used once
+
+
+
+ARM Macro Assembler    Page 2 Alphabetic symbol ordering
+Relocatable symbols
+
+LED_Init 00000000
+
+Symbol: LED_Init
+   Definitions
+      At line 51 in file Hardware\led_buzzer.s
+   Uses
+      At line 29 in file Hardware\led_buzzer.s
+Comment: LED_Init used once
+LED_Off 00000054
+
+Symbol: LED_Off
+   Definitions
+      At line 110 in file Hardware\led_buzzer.s
+   Uses
+      At line 31 in file Hardware\led_buzzer.s
+      At line 92 in file Hardware\led_buzzer.s
+      At line 147 in file Hardware\led_buzzer.s
+
+LED_On 00000044
+
+Symbol: LED_On
+   Definitions
+      At line 97 in file Hardware\led_buzzer.s
+   Uses
+      At line 30 in file Hardware\led_buzzer.s
+      At line 144 in file Hardware\led_buzzer.s
+
+LED_Toggle 00000068
+
+Symbol: LED_Toggle
+   Definitions
+      At line 124 in file Hardware\led_buzzer.s
+   Uses
+      At line 32 in file Hardware\led_buzzer.s
+Comment: LED_Toggle used once
+wait_bz_clk 000000AA
+
+Symbol: wait_bz_clk
+   Definitions
+      At line 162 in file Hardware\led_buzzer.s
+   Uses
+      At line 165 in file Hardware\led_buzzer.s
+Comment: wait_bz_clk used once
+wait_led_clk 0000000C
+
+Symbol: wait_led_clk
+   Definitions
+      At line 63 in file Hardware\led_buzzer.s
+   Uses
+      At line 66 in file Hardware\led_buzzer.s
+Comment: wait_led_clk used once
+13 symbols
+
+
+
+ARM Macro Assembler    Page 1 Alphabetic symbol ordering
+Relocatable symbols
+
+.data 00000000
+
+Symbol: .data
+   Definitions
+      At line 242 in file Hardware\led_buzzer.s
+   Uses
+      None
+Comment: .data unused
+led_state 00000000
+
+Symbol: led_state
+   Definitions
+      At line 243 in file Hardware\led_buzzer.s
+   Uses
+      At line 104 in file Hardware\led_buzzer.s
+      At line 118 in file Hardware\led_buzzer.s
+      At line 133 in file Hardware\led_buzzer.s
+
+2 symbols
+
+
+
+ARM Macro Assembler    Page 1 Alphabetic symbol ordering
+Absolute symbols
+
+Buzzer_CLK_EN 00000008
+
+Symbol: Buzzer_CLK_EN
+   Definitions
+      At line 15 in file Hardware\led_buzzer.s
+   Uses
+      At line 160 in file Hardware\led_buzzer.s
+      At line 164 in file Hardware\led_buzzer.s
+
+Buzzer_PIN 00000004
+
+Symbol: Buzzer_PIN
+   Definitions
+      At line 14 in file Hardware\led_buzzer.s
+   Uses
+      At line 176 in file Hardware\led_buzzer.s
+      At line 196 in file Hardware\led_buzzer.s
+      At line 205 in file Hardware\led_buzzer.s
+      At line 216 in file Hardware\led_buzzer.s
+
+Buzzer_PORT 40020C00
+
+Symbol: Buzzer_PORT
+   Definitions
+      At line 13 in file Hardware\led_buzzer.s
+   Uses
+      At line 168 in file Hardware\led_buzzer.s
+      At line 195 in file Hardware\led_buzzer.s
+      At line 204 in file Hardware\led_buzzer.s
+      At line 214 in file Hardware\led_buzzer.s
+
+GPIO_BSRR 00000018
+
+Symbol: GPIO_BSRR
+   Definitions
+      At line 25 in file Hardware\led_buzzer.s
+   Uses
+      At line 102 in file Hardware\led_buzzer.s
+      At line 116 in file Hardware\led_buzzer.s
+      At line 197 in file Hardware\led_buzzer.s
+      At line 207 in file Hardware\led_buzzer.s
+
+GPIO_MODER 00000000
+
+Symbol: GPIO_MODER
+   Definitions
+      At line 21 in file Hardware\led_buzzer.s
+   Uses
+      At line 70 in file Hardware\led_buzzer.s
+      At line 73 in file Hardware\led_buzzer.s
+      At line 170 in file Hardware\led_buzzer.s
+      At line 173 in file Hardware\led_buzzer.s
+
+GPIO_ODR 00000014
+
+Symbol: GPIO_ODR
+   Definitions
+      At line 26 in file Hardware\led_buzzer.s
+   Uses
+
+
+
+ARM Macro Assembler    Page 2 Alphabetic symbol ordering
+Absolute symbols
+
+      At line 128 in file Hardware\led_buzzer.s
+      At line 131 in file Hardware\led_buzzer.s
+      At line 215 in file Hardware\led_buzzer.s
+      At line 218 in file Hardware\led_buzzer.s
+
+GPIO_OSPEEDR 00000008
+
+Symbol: GPIO_OSPEEDR
+   Definitions
+      At line 23 in file Hardware\led_buzzer.s
+   Uses
+      At line 81 in file Hardware\led_buzzer.s
+      At line 84 in file Hardware\led_buzzer.s
+      At line 179 in file Hardware\led_buzzer.s
+      At line 182 in file Hardware\led_buzzer.s
+
+GPIO_OTYPER 00000004
+
+Symbol: GPIO_OTYPER
+   Definitions
+      At line 22 in file Hardware\led_buzzer.s
+   Uses
+      At line 76 in file Hardware\led_buzzer.s
+      At line 78 in file Hardware\led_buzzer.s
+      At line 175 in file Hardware\led_buzzer.s
+      At line 177 in file Hardware\led_buzzer.s
+
+GPIO_PUPDR 0000000C
+
+Symbol: GPIO_PUPDR
+   Definitions
+      At line 24 in file Hardware\led_buzzer.s
+   Uses
+      At line 87 in file Hardware\led_buzzer.s
+      At line 89 in file Hardware\led_buzzer.s
+      At line 184 in file Hardware\led_buzzer.s
+      At line 186 in file Hardware\led_buzzer.s
+
+LED_CLK_EN 00000001
+
+Symbol: LED_CLK_EN
+   Definitions
+      At line 11 in file Hardware\led_buzzer.s
+   Uses
+      At line 59 in file Hardware\led_buzzer.s
+      At line 65 in file Hardware\led_buzzer.s
+
+LED_PIN 00000020
+
+Symbol: LED_PIN
+   Definitions
+      At line 10 in file Hardware\led_buzzer.s
+   Uses
+      At line 77 in file Hardware\led_buzzer.s
+      At line 101 in file Hardware\led_buzzer.s
+      At line 114 in file Hardware\led_buzzer.s
+      At line 129 in file Hardware\led_buzzer.s
+
+LED_PORT 40020000
+
+
+
+ARM Macro Assembler    Page 3 Alphabetic symbol ordering
+Absolute symbols
+
+
+Symbol: LED_PORT
+   Definitions
+      At line 9 in file Hardware\led_buzzer.s
+   Uses
+      At line 69 in file Hardware\led_buzzer.s
+      At line 100 in file Hardware\led_buzzer.s
+      At line 113 in file Hardware\led_buzzer.s
+      At line 127 in file Hardware\led_buzzer.s
+
+RCC_AHB1ENR 40023830
+
+Symbol: RCC_AHB1ENR
+   Definitions
+      At line 18 in file Hardware\led_buzzer.s
+   Uses
+      At line 57 in file Hardware\led_buzzer.s
+      At line 158 in file Hardware\led_buzzer.s
+
+RCC_BASE 40023800
+
+Symbol: RCC_BASE
+   Definitions
+      At line 17 in file Hardware\led_buzzer.s
+   Uses
+      At line 18 in file Hardware\led_buzzer.s
+Comment: RCC_BASE used once
+14 symbols
+
+
+
+ARM Macro Assembler    Page 1 Alphabetic symbol ordering
+External symbols
+
+Delay_ms 00000000
+
+Symbol: Delay_ms
+   Definitions
+      At line 41 in file Hardware\led_buzzer.s
+   Uses
+      At line 146 in file Hardware\led_buzzer.s
+      At line 149 in file Hardware\led_buzzer.s
+      At line 228 in file Hardware\led_buzzer.s
+      At line 231 in file Hardware\led_buzzer.s
+
+1 symbol
+366 symbols in table

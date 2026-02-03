@@ -1,0 +1,678 @@
+
+
+
+ARM Macro Assembler    Page 1 
+
+
+    1 00000000         ;=======================================================
+                       ===
+    2 00000000         ;  usart6.s  -- 汇编实现 USART6 驱动（TX=PC6，RX
+                       =PC7）
+    3 00000000         ;=======================================================
+                       ===
+    4 00000000                 PRESERVE8
+    5 00000000                 THUMB
+    6 00000000         
+    7 00000000         ;-------------------------- 常量 ---------------------
+                       ------
+    8 00000000 40023800 
+                       RCC_BASE
+                               EQU              0x40023800
+    9 00000000 40023830 
+                       RCC_AHB1ENR
+                               EQU              (RCC_BASE + 0x30)
+   10 00000000 40023844 
+                       RCC_APB2ENR
+                               EQU              (RCC_BASE + 0x44)
+   11 00000000         
+   12 00000000 40020800 
+                       GPIOC_BASE
+                               EQU              0x40020800
+   13 00000000 40020800 
+                       GPIOC_MODER
+                               EQU              (GPIOC_BASE + 0x00)
+   14 00000000 40020804 
+                       GPIOC_OTYPER
+                               EQU              (GPIOC_BASE + 0x04)
+   15 00000000 40020808 
+                       GPIOC_OSPEEDR
+                               EQU              (GPIOC_BASE + 0x08)
+   16 00000000 4002080C 
+                       GPIOC_PUPDR
+                               EQU              (GPIOC_BASE + 0x0C)
+   17 00000000 40020820 
+                       GPIOC_AFRL
+                               EQU              (GPIOC_BASE + 0x20)
+   18 00000000         
+   19 00000000 40011400 
+                       USART6_BASE
+                               EQU              0x40011400
+   20 00000000 40011400 
+                       USART6_SR
+                               EQU              (USART6_BASE + 0x00)
+   21 00000000 40011404 
+                       USART6_DR
+                               EQU              (USART6_BASE + 0x04)
+   22 00000000 40011408 
+                       USART6_BRR
+                               EQU              (USART6_BASE + 0x08)
+   23 00000000 4001140C 
+                       USART6_CR1
+                               EQU              (USART6_BASE + 0x0C)
+   24 00000000         
+   25 00000000 00000004 
+                       RCC_AHB1ENR_GPIOCEN
+                               EQU              (1<<2)
+
+
+
+ARM Macro Assembler    Page 2 
+
+
+   26 00000000 00000020 
+                       RCC_APB2ENR_USART6EN
+                               EQU              (1<<5)
+   27 00000000 00000008 
+                       GPIO_AF_USART6
+                               EQU              0x08
+   28 00000000 00002000 
+                       USART_CR1_UE
+                               EQU              (1<<13)
+   29 00000000 00000008 
+                       USART_CR1_TE
+                               EQU              (1<<3)
+   30 00000000 00000004 
+                       USART_CR1_RE
+                               EQU              (1<<2)
+   31 00000000 00000080 
+                       USART_SR_TXE
+                               EQU              (1<<7)
+   32 00000000         
+   33 00000000         ;-------------------- 导出函数符号 ---------------
+                       ----------
+   34 00000000                 EXPORT           USART6_Init
+   35 00000000                 EXPORT           USART6_SendChar
+   36 00000000                 EXPORT           USART6_SendString
+   37 00000000                 EXPORT           USART6_SendInt
+   38 00000000         
+   39 00000000         ;-------------------- 代码段 ------------------------
+                       ------
+   40 00000000                 AREA             |.text|, CODE, READONLY
+   41 00000000         
+   42 00000000         ;-------------------------------------------------------
+                       --
+   43 00000000         USART6_Init
+   44 00000000         ;  void USART6_Init(uint32_t baudrate);
+   45 00000000         ;  baudrate 在 R0 里
+   46 00000000         ;-------------------------------------------------------
+                       --
+   47 00000000 B5F0            PUSH             {R4-R7, LR}
+   48 00000002         
+   49 00000002         ;因为参数存在R0里面，所以下面的代码不�
+                       �R0传数
+   50 00000002         ; 1) 开 GPIOC 时钟
+   51 00000002 493B            LDR              R1, =RCC_AHB1ENR
+   52 00000004 680A            LDR              R2, [R1]
+   53 00000006 F042 0204       ORR              R2, R2, #RCC_AHB1ENR_GPIOCEN
+   54 0000000A 600A            STR              R2, [R1]
+   55 0000000C         
+   56 0000000C         ; 2) 开 USART6 时钟
+   57 0000000C 4939            LDR              R1, =RCC_APB2ENR
+   58 0000000E 680A            LDR              R2, [R1]
+   59 00000010 F042 0220       ORR              R2, R2, #RCC_APB2ENR_USART6EN
+   60 00000014 600A            STR              R2, [R1]
+   61 00000016         
+   62 00000016         ; 3) PC6/PC7 配置成AF模式，配置成复用模式
+   63 00000016 4938            LDR              R1, =GPIOC_MODER
+   64 00000018 680A            LDR              R2, [R1]
+   65 0000001A F422 5240       BIC              R2, R2, #(3<<12) ; Clear PC6
+   66 0000001E F442 5200       ORR              R2, R2, #(2<<12) ; PC6 -> AF
+   67 00000022 F422 4240       BIC              R2, R2, #(3<<14) ; Clear PC7
+
+
+
+ARM Macro Assembler    Page 3 
+
+
+   68 00000026 F442 4200       ORR              R2, R2, #(2<<14) ; PC7 -> AF
+   69 0000002A 600A            STR              R2, [R1]
+   70 0000002C         
+   71 0000002C 4933            LDR              R1, =GPIOC_OTYPER
+   72 0000002E 680A            LDR              R2, [R1]
+   73 00000030 F022 02C0       BIC              R2, R2, #(3<<6) ; PC6/7 -> Push
+                                                             Pull
+   74 00000034 600A            STR              R2, [R1]
+   75 00000036         
+   76 00000036 4932            LDR              R1, =GPIOC_OSPEEDR
+   77 00000038 680A            LDR              R2, [R1]
+   78 0000003A F422 5240       BIC              R2, R2, #(3<<12)
+   79 0000003E F442 5200       ORR              R2, R2, #(2<<12) ; High Speed
+   80 00000042 F422 4240       BIC              R2, R2, #(3<<14)
+   81 00000046 F442 4200       ORR              R2, R2, #(2<<14)
+   82 0000004A 600A            STR              R2, [R1]
+   83 0000004C         
+   84 0000004C 492D            LDR              R1, =GPIOC_PUPDR
+   85 0000004E 680A            LDR              R2, [R1]
+   86 00000050 F422 5240       BIC              R2, R2, #(3<<12)
+   87 00000054 F442 5280       ORR              R2, R2, #(1<<12) ; Pull-up
+   88 00000058 F422 4240       BIC              R2, R2, #(3<<14)
+   89 0000005C F442 4280       ORR              R2, R2, #(1<<14)
+   90 00000060 600A            STR              R2, [R1]
+   91 00000062         
+   92 00000062         ; 4) 复用功能 AF8 (USART6)，复用功能选择USART
+                       6
+   93 00000062 4929            LDR              R1, =GPIOC_AFRL
+   94 00000064 680A            LDR              R2, [R1]
+   95 00000066 F022 6270       BIC              R2, R2, #(0xF<<24)
+   96 0000006A F042 6200       ORR              R2, R2, #(GPIO_AF_USART6<<24) 
+                                                            ; PC6
+   97 0000006E F022 4270       BIC              R2, R2, #(0xF<<28)
+   98 00000072 F042 4200       ORR              R2, R2, #(GPIO_AF_USART6<<28) 
+                                                            ; PC7
+   99 00000076 600A            STR              R2, [R1]
+  100 00000078         
+  101 00000078         ; 5) 波特率计算 (这里USART6在APB2，为84MHz)
+  102 00000078         ; 公式: BRR = PCLK2 / BaudRate
+  103 00000078         ; 注意：这里直接除法得到的结果写入BRR是
+                       正确的，
+  104 00000078         ; 因为 BRR 的格式正好符合 16倍过采样时的�
+                       ��法结果分布。
+  105 00000078 4924            LDR              R1, =84000000
+  106 0000007A FBB1 F2F0       UDIV             R2, R1, R0
+  107 0000007E 4924            LDR              R1, =USART6_BRR
+  108 00000080 600A            STR              R2, [R1]
+  109 00000082         
+  110 00000082         ; 6) CR1 = 8N1, TE+RE+UE
+  111 00000082         ;UE是USART ENABLE串口模块总使能
+  112 00000082 4924            LDR              R1, =USART6_CR1
+  113 00000084 F242 020C       MOV              R2, #(USART_CR1_TE | USART_CR1_
+RE | USART_CR1_UE)
+  114 00000088 600A            STR              R2, [R1]
+  115 0000008A         
+  116 0000008A BDF0            POP              {R4-R7, PC}
+  117 0000008C         
+  118 0000008C         ;-------------------------------------------------------
+                       --
+
+
+
+ARM Macro Assembler    Page 4 
+
+
+  119 0000008C         USART6_SendChar
+  120 0000008C         ;  void USART6_SendChar(uint8_t ch);
+  121 0000008C         ;  ch 在 R0 低 8 位 (这是重点，SendString 必须
+                       把字给 R0)
+  122 0000008C         ;SR是状态寄存器（status register），DR是数据
+                       寄存器
+  123 0000008C         ;SR有一位是TXE，TXE为1时表示数据寄存器为�
+                       ��可以继续发数据了，为0表示上一包数据�
+                       �没处理完
+  124 0000008C         ;DR是双向寄存器，STRB的时候是发数据，数�
+                       ��送到发送移位寄存器，LDRB会送到接收移�
+                       �寄存器
+  125 0000008C         ;STRB和STR的区别是STRB只会处理一个字节（By
+                       te）
+  126 0000008C         ;-------------------------------------------------------
+                       --
+  127 0000008C 4922            LDR              R1, =USART6_SR
+  128 0000008E         wait_txe
+  129 0000008E 680A            LDR              R2, [R1]
+  130 00000090 F012 0F80       TST              R2, #USART_SR_TXE
+  131 00000094 D0FB            BEQ              wait_txe
+  132 00000096         
+  133 00000096 4921            LDR              R1, =USART6_DR
+  134 00000098 7008            STRB             R0, [R1]
+  135 0000009A 4770            BX               LR
+  136 0000009C         
+  137 0000009C         ;-------------------------------------------------------
+                       --
+  138 0000009C         USART6_SendString
+  139 0000009C         ;  void USART6_SendString(char *str);
+  140 0000009C         ;  输入：str 的地址在 R0
+  141 0000009C         ;-------------------------------------------------------
+                       --
+  142 0000009C B510            PUSH             {R4, LR}    ; 保存 R4 (被调
+                                                            用者保存寄存�
+                                                            ��) 和 LR
+  143 0000009E         
+  144 0000009E 4604            MOV              R4, R0      ; 把字符串指�
+                                                            �从 R0 转移到 R
+                                                            4 保存
+  145 000000A0         ; 因为 R0 将被用来给 SendChar 传参
+  146 000000A0         
+  147 000000A0         loop_str
+  148 000000A0 7820            LDRB             R0, [R4]    ; 从指针 R4 处�
+                                                            ��取字符 -> 放�
+                                                            �� R0
+  149 000000A2 2800            CMP              R0, #0      ; 检查是不是 '
+                                                            \0'
+  150 000000A4 D004            BEQ              end_str     ; 如果是 0，结
+                                                            束
+  151 000000A6         
+  152 000000A6 F7FF FFFE       BL               USART6_SendChar ; 调用发送�
+                                                            ��数 (它会发送
+                                                             R0 里的字符)
+  153 000000AA         
+  154 000000AA F104 0401       ADD              R4, R4, #1  ; R4 指针加 1，
+                                                            也就是地址+1�
+                                                            �能一路处理下
+                                                            去
+
+
+
+ARM Macro Assembler    Page 5 
+
+
+  155 000000AE E7F7            B                loop_str
+  156 000000B0         
+  157 000000B0         end_str
+  158 000000B0 BD10            POP              {R4, PC}    ; 恢复 R4 并返�
+                                                            ��
+  159 000000B2         
+  160 000000B2         ;-------------------------------------------------------
+                       --
+  161 000000B2         USART6_SendInt
+  162 000000B2         ;  void USART6_SendInt(uint32_t num);
+  163 000000B2         ;  功能：将 R0 中的无符号整数转换为 ASCII 
+                       并发送
+  164 000000B2         ;-------------------------------------------------------
+                       --
+  165 000000B2 E92D 41F0       PUSH             {R4-R8, LR} ; 保存寄存器
+  166 000000B6         
+  167 000000B6         ; --- 0 的特殊处理 ---
+  168 000000B6 2800            CMP              R0, #0
+  169 000000B8 D104            BNE              convert_start
+  170 000000BA F04F 0030       MOV              R0, #'0'    ; 如果是0，直�
+                                                            ��发字符 '0'
+  171 000000BE F7FF FFFE       BL               USART6_SendChar
+  172 000000C2 E013            B                send_int_exit
+  173 000000C4         
+  174 000000C4         convert_start
+  175 000000C4 4604            MOV              R4, R0      ; R4 = 待处理的
+                                                            数字
+  176 000000C6 F04F 050A       MOV              R5, #10     ; R5 = 除数 10
+  177 000000CA 466E            MOV              R6, SP      ; R6 = 记录当前
+                                                            的栈顶位置 (�
+                                                            �准线)
+  178 000000CC         
+  179 000000CC         convert_loop
+  180 000000CC         ; R4 / 10 = R7 (商)
+  181 000000CC FBB4 F7F5       UDIV             R7, R4, R5
+  182 000000D0         
+  183 000000D0         ; R0 = R4 - (R7 * 10) = 余数 (Cortex-M4 乘减指令 M
+                       LS)
+  184 000000D0 FB07 4015       MLS              R0, R7, R5, R4
+  185 000000D4         
+  186 000000D4 F100 0030       ADD              R0, R0, #'0' ; 转换为字符 
+                                                            (0 -> '0')
+  187 000000D8 B401            PUSH             {R0}        ; 压栈 (因为算
+                                                            出来是个位，�
+                                                            ��最后发)
+  188 000000DA         
+  189 000000DA 463C            MOV              R4, R7      ; 更新被除数�
+                                                            �商
+  190 000000DC 2C00            CMP              R4, #0      ; 商为0了吗？
+  191 000000DE D1F5            BNE              convert_loop ; 没为0，继续
+                                                            算下一位
+  192 000000E0         
+  193 000000E0         print_stack_loop
+  194 000000E0 45B5            CMP              SP, R6      ; 检查栈指针�
+                                                            �否回到基准线
+                                                            
+  195 000000E2 D003            BEQ              send_int_exit ; 如果相等，
+                                                            说明全发出去�
+                                                            ��
+
+
+
+ARM Macro Assembler    Page 6 
+
+
+  196 000000E4         
+  197 000000E4 BC01            POP              {R0}        ; 弹出一个字�
+                                                            �
+  198 000000E6 F7FF FFFE       BL               USART6_SendChar ; 发送
+  199 000000EA E7F9            B                print_stack_loop
+  200 000000EC         
+  201 000000EC         send_int_exit
+  202 000000EC E8BD 81F0       POP              {R4-R8, PC} ; 恢复寄存器�
+                                                            �返回
+  203 000000F0         
+  204 000000F0         ;-------------------------------------------------------
+                       --
+  205 000000F0                 END
+              40023830 
+              40023844 
+              40020800 
+              40020804 
+              40020808 
+              4002080C 
+              40020820 
+              0501BD00 
+              40011408 
+              4001140C 
+              40011400 
+              40011404 
+Command Line: --debug --xref --diag_suppress=9931 --cpu=Cortex-M4.fp --apcs=int
+erwork --depend=.\objects\usart6.d -o.\objects\usart6.o -I.\RTE\_f401 -ID:\keil
+_v5\ARM\PACK\Keil\STM32F4xx_DFP\2.15.0\Drivers\CMSIS\Device\ST\STM32F4xx\Includ
+e -ID:\keil_v5\ARM\CMSIS\Include --predefine="__MICROLIB SETA 1" --predefine="_
+_UVISION_VERSION SETA 527" --predefine="STM32F401xE SETA 1" --list=.\listings\u
+sart6.lst System\usart6.s
+
+
+
+ARM Macro Assembler    Page 1 Alphabetic symbol ordering
+Relocatable symbols
+
+.text 00000000
+
+Symbol: .text
+   Definitions
+      At line 40 in file System\usart6.s
+   Uses
+      None
+Comment: .text unused
+USART6_Init 00000000
+
+Symbol: USART6_Init
+   Definitions
+      At line 43 in file System\usart6.s
+   Uses
+      At line 34 in file System\usart6.s
+Comment: USART6_Init used once
+USART6_SendChar 0000008C
+
+Symbol: USART6_SendChar
+   Definitions
+      At line 119 in file System\usart6.s
+   Uses
+      At line 35 in file System\usart6.s
+      At line 152 in file System\usart6.s
+      At line 171 in file System\usart6.s
+      At line 198 in file System\usart6.s
+
+USART6_SendInt 000000B2
+
+Symbol: USART6_SendInt
+   Definitions
+      At line 161 in file System\usart6.s
+   Uses
+      At line 37 in file System\usart6.s
+Comment: USART6_SendInt used once
+USART6_SendString 0000009C
+
+Symbol: USART6_SendString
+   Definitions
+      At line 138 in file System\usart6.s
+   Uses
+      At line 36 in file System\usart6.s
+Comment: USART6_SendString used once
+convert_loop 000000CC
+
+Symbol: convert_loop
+   Definitions
+      At line 179 in file System\usart6.s
+   Uses
+      At line 191 in file System\usart6.s
+Comment: convert_loop used once
+convert_start 000000C4
+
+Symbol: convert_start
+   Definitions
+      At line 174 in file System\usart6.s
+   Uses
+      At line 169 in file System\usart6.s
+Comment: convert_start used once
+
+
+
+ARM Macro Assembler    Page 2 Alphabetic symbol ordering
+Relocatable symbols
+
+end_str 000000B0
+
+Symbol: end_str
+   Definitions
+      At line 157 in file System\usart6.s
+   Uses
+      At line 150 in file System\usart6.s
+Comment: end_str used once
+loop_str 000000A0
+
+Symbol: loop_str
+   Definitions
+      At line 147 in file System\usart6.s
+   Uses
+      At line 155 in file System\usart6.s
+Comment: loop_str used once
+print_stack_loop 000000E0
+
+Symbol: print_stack_loop
+   Definitions
+      At line 193 in file System\usart6.s
+   Uses
+      At line 199 in file System\usart6.s
+Comment: print_stack_loop used once
+send_int_exit 000000EC
+
+Symbol: send_int_exit
+   Definitions
+      At line 201 in file System\usart6.s
+   Uses
+      At line 172 in file System\usart6.s
+      At line 195 in file System\usart6.s
+
+wait_txe 0000008E
+
+Symbol: wait_txe
+   Definitions
+      At line 128 in file System\usart6.s
+   Uses
+      At line 131 in file System\usart6.s
+Comment: wait_txe used once
+12 symbols
+
+
+
+ARM Macro Assembler    Page 1 Alphabetic symbol ordering
+Absolute symbols
+
+GPIOC_AFRL 40020820
+
+Symbol: GPIOC_AFRL
+   Definitions
+      At line 17 in file System\usart6.s
+   Uses
+      At line 93 in file System\usart6.s
+Comment: GPIOC_AFRL used once
+GPIOC_BASE 40020800
+
+Symbol: GPIOC_BASE
+   Definitions
+      At line 12 in file System\usart6.s
+   Uses
+      At line 13 in file System\usart6.s
+      At line 14 in file System\usart6.s
+      At line 15 in file System\usart6.s
+      At line 16 in file System\usart6.s
+      At line 17 in file System\usart6.s
+
+GPIOC_MODER 40020800
+
+Symbol: GPIOC_MODER
+   Definitions
+      At line 13 in file System\usart6.s
+   Uses
+      At line 63 in file System\usart6.s
+Comment: GPIOC_MODER used once
+GPIOC_OSPEEDR 40020808
+
+Symbol: GPIOC_OSPEEDR
+   Definitions
+      At line 15 in file System\usart6.s
+   Uses
+      At line 76 in file System\usart6.s
+Comment: GPIOC_OSPEEDR used once
+GPIOC_OTYPER 40020804
+
+Symbol: GPIOC_OTYPER
+   Definitions
+      At line 14 in file System\usart6.s
+   Uses
+      At line 71 in file System\usart6.s
+Comment: GPIOC_OTYPER used once
+GPIOC_PUPDR 4002080C
+
+Symbol: GPIOC_PUPDR
+   Definitions
+      At line 16 in file System\usart6.s
+   Uses
+      At line 84 in file System\usart6.s
+Comment: GPIOC_PUPDR used once
+GPIO_AF_USART6 00000008
+
+Symbol: GPIO_AF_USART6
+   Definitions
+      At line 27 in file System\usart6.s
+   Uses
+      At line 96 in file System\usart6.s
+
+
+
+ARM Macro Assembler    Page 2 Alphabetic symbol ordering
+Absolute symbols
+
+      At line 98 in file System\usart6.s
+
+RCC_AHB1ENR 40023830
+
+Symbol: RCC_AHB1ENR
+   Definitions
+      At line 9 in file System\usart6.s
+   Uses
+      At line 51 in file System\usart6.s
+Comment: RCC_AHB1ENR used once
+RCC_AHB1ENR_GPIOCEN 00000004
+
+Symbol: RCC_AHB1ENR_GPIOCEN
+   Definitions
+      At line 25 in file System\usart6.s
+   Uses
+      At line 53 in file System\usart6.s
+Comment: RCC_AHB1ENR_GPIOCEN used once
+RCC_APB2ENR 40023844
+
+Symbol: RCC_APB2ENR
+   Definitions
+      At line 10 in file System\usart6.s
+   Uses
+      At line 57 in file System\usart6.s
+Comment: RCC_APB2ENR used once
+RCC_APB2ENR_USART6EN 00000020
+
+Symbol: RCC_APB2ENR_USART6EN
+   Definitions
+      At line 26 in file System\usart6.s
+   Uses
+      At line 59 in file System\usart6.s
+Comment: RCC_APB2ENR_USART6EN used once
+RCC_BASE 40023800
+
+Symbol: RCC_BASE
+   Definitions
+      At line 8 in file System\usart6.s
+   Uses
+      At line 9 in file System\usart6.s
+      At line 10 in file System\usart6.s
+
+USART6_BASE 40011400
+
+Symbol: USART6_BASE
+   Definitions
+      At line 19 in file System\usart6.s
+   Uses
+      At line 20 in file System\usart6.s
+      At line 21 in file System\usart6.s
+      At line 22 in file System\usart6.s
+      At line 23 in file System\usart6.s
+
+USART6_BRR 40011408
+
+Symbol: USART6_BRR
+   Definitions
+      At line 22 in file System\usart6.s
+
+
+
+ARM Macro Assembler    Page 3 Alphabetic symbol ordering
+Absolute symbols
+
+   Uses
+      At line 107 in file System\usart6.s
+Comment: USART6_BRR used once
+USART6_CR1 4001140C
+
+Symbol: USART6_CR1
+   Definitions
+      At line 23 in file System\usart6.s
+   Uses
+      At line 112 in file System\usart6.s
+Comment: USART6_CR1 used once
+USART6_DR 40011404
+
+Symbol: USART6_DR
+   Definitions
+      At line 21 in file System\usart6.s
+   Uses
+      At line 133 in file System\usart6.s
+Comment: USART6_DR used once
+USART6_SR 40011400
+
+Symbol: USART6_SR
+   Definitions
+      At line 20 in file System\usart6.s
+   Uses
+      At line 127 in file System\usart6.s
+Comment: USART6_SR used once
+USART_CR1_RE 00000004
+
+Symbol: USART_CR1_RE
+   Definitions
+      At line 30 in file System\usart6.s
+   Uses
+      At line 113 in file System\usart6.s
+Comment: USART_CR1_RE used once
+USART_CR1_TE 00000008
+
+Symbol: USART_CR1_TE
+   Definitions
+      At line 29 in file System\usart6.s
+   Uses
+      At line 113 in file System\usart6.s
+Comment: USART_CR1_TE used once
+USART_CR1_UE 00002000
+
+Symbol: USART_CR1_UE
+   Definitions
+      At line 28 in file System\usart6.s
+   Uses
+      At line 113 in file System\usart6.s
+Comment: USART_CR1_UE used once
+USART_SR_TXE 00000080
+
+Symbol: USART_SR_TXE
+   Definitions
+      At line 31 in file System\usart6.s
+   Uses
+      At line 130 in file System\usart6.s
+Comment: USART_SR_TXE used once
+
+
+
+ARM Macro Assembler    Page 4 Alphabetic symbol ordering
+Absolute symbols
+
+21 symbols
+369 symbols in table

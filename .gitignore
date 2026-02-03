@@ -1,0 +1,18 @@
+# 忽略编译生成的中间文件
+*.o
+*.obj
+*.hex
+*.bin
+
+# 忽略编译目录
+build/
+Debug/
+Release/
+
+# 忽略IDE产生的配置文件夹 (如果是Keil或VSCode)
+.vscode/
+*.uvoptx
+*.uvgui.*
+*.uvguix.*
+*.bak
+*.dep
