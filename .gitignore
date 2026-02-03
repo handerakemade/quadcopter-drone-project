@@ -1,18 +1,15 @@
-# 忽略编译生成的中间文件
-*.o
-*.obj
-*.hex
-*.bin
+# Keil 生成的文件夹
+Listings/
+Objects/
+RTE/
 
-# 忽略编译目录
-build/
-Debug/
-Release/
-
-# 忽略IDE产生的配置文件夹 (如果是Keil或VSCode)
-.vscode/
-*.uvoptx
-*.uvgui.*
+# 各种中间文件
 *.uvguix.*
+*.uvoptx
 *.bak
 *.dep
+*.o
+*.d
+*.crf
+*.htm
+*.map
